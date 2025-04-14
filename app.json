@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "Holobots",
+    "slug": "holobots-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.holobots.app",
+      "infoPlist": {
+        "NSHealthShareUsageDescription": "Allow Holobots to read your step count and walking distance to convert into Sync Points for your Holobots.",
+        "NSHealthUpdateUsageDescription": "Allow Holobots to read your step count and walking distance to convert into Sync Points for your Holobots."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "13.0"
+          }
+        }
+      ]
+    ]
+  }
+}
