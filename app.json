@@ -18,8 +18,12 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.holobots.app",
       "infoPlist": {
-        "NSHealthShareUsageDescription": "Allow Holobots to read your step count and walking distance to convert into Sync Points for your Holobots.",
-        "NSHealthUpdateUsageDescription": "Allow Holobots to read your step count and walking distance to convert into Sync Points for your Holobots."
+        "NSHealthShareUsageDescription": "Allow Holobots to read your health data to provide personalized insights and track your fitness progress.",
+        "NSHealthUpdateUsageDescription": "Allow Holobots to write health data to keep your fitness information up to date."
+      },
+      "entitlements": {
+        "com.apple.developer.healthkit": true,
+        "com.apple.developer.healthkit.access": ["activity", "fitness"]
       }
     },
     "android": {
@@ -36,7 +40,7 @@
         "expo-build-properties",
         {
           "ios": {
-            "deploymentTarget": "13.0"
+            "deploymentTarget": "15.1"
           }
         }
       ]

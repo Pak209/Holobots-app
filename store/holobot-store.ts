@@ -344,34 +344,42 @@ export const useHolobotStore = create<HolobotStore>()(
         try {
           set({ isLoading: true, error: null });
           
-          const { holobots, selectedHolobotId, holobot } = get();
-          if (!selectedHolobotId || !holobot) return;
+          const { holobots, selectedHolobotId } = get();
           
-          // Calculate rewards
-          const expGained = syncPoints * 10;
-          const holosGained = Math.floor(syncPoints / 2);
+          if (!selectedHolobotId || !holobots.length) {
+            throw new Error('No Holobot selected');
+          }
           
-          // Update the selected holobot
+          // Calculate exp gains based on sync points
+          const expGained = Math.floor(syncPoints * 0.5);
+          const holosGained = Math.floor(syncPoints * 0.2);
+          
+          // Update the selected holobot's stats
           const updatedHolobots = holobots.map(holobot => {
             if (holobot.id === selectedHolobotId) {
-              // Calculate new level based on experience
+              // Current exp + new exp
               const currentExp = holobot.stats.experience || 0;
-              const nextLevelExp = holobot.stats.nextLevelExp || 100;
-              const newExp = currentExp + expGained;
+              const currentLevel = holobot.stats.level || 1;
+              let totalExp = currentExp + expGained;
               
-              let newLevel = holobot.level;
-              let remainingExp = newExp;
+              // Calculate exp needed for next level
+              const nextLevelExp = holobot.stats.nextLevelExp || 100 * currentLevel;
+              
+              // Check if level up
+              let newLevel = currentLevel;
+              let remainingExp = totalExp;
               let newNextLevelExp = nextLevelExp;
               
-              // Level up if enough experience
-              if (newExp >= nextLevelExp) {
-                newLevel += 1;
-                remainingExp = newExp - nextLevelExp;
-                newNextLevelExp = Math.floor(nextLevelExp * 1.5);
+              // Handle potential level up
+              if (totalExp >= nextLevelExp) {
+                newLevel = currentLevel + 1;
+                remainingExp = totalExp - nextLevelExp;
+                newNextLevelExp = 100 * newLevel;
               }
               
-              // Update stats based on level up
-              const statBoost = newLevel > holobot.level ? 1 : 0;
+              // Calculate stat boosts based on level gain
+              const levelDiff = newLevel - currentLevel;
+              const statBoost = levelDiff * 2; // +2 to each stat per level
               
               return {
                 ...holobot,
@@ -411,6 +419,12 @@ export const useHolobotStore = create<HolobotStore>()(
                   holos_tokens: supabase.rpc('increment_holos_tokens', { amount: holosGained })
                 })
                 .eq('id', session.user.id);
+              
+              // Call the apply_sync_points RPC function
+              await supabase.rpc('apply_sync_points', {
+                user_id: session.user.id,
+                points: syncPoints
+              });
             } catch (error) {
               console.error('Error updating holobots in database:', error);
               // Continue with local update even if database update fails

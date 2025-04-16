@@ -20,7 +20,8 @@ export default function SignupScreen() {
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      router.replace('/(tabs)');
+      // Redirect to mint screen instead of tabs for new users to select their first Holobot
+      router.replace('/mint');
     }
   }, [isAuthenticated]);
   
@@ -73,7 +74,7 @@ export default function SignupScreen() {
     
     try {
       await signUp(email, password, username);
-      // If we get here without error, we should be redirected by the isAuthenticated effect
+      // Successful signup will trigger the isAuthenticated effect which redirects to mint screen
     } catch (error) {
       console.log('Signup error:', error);
       setSignupError(error instanceof Error ? error.message : 'Registration failed. Please try again.');

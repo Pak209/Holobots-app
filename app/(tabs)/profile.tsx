@@ -13,10 +13,11 @@ import { EnergyRefillSection } from '@/components/EnergyRefillSection';
 import { LogOut, Wallet, Award, ChevronRight } from 'lucide-react-native';
 import { ItemCard } from '@/components/items/ItemCard';
 import { getPlayerRankColor } from '@/utils/playerRanks';
+import { supabase } from '@/lib/supabase';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, profile, signOut, isLoading, refreshUser } = useAuthStore();
+  const { user, profile, signOut, isLoading, refreshUser, updateUser } = useAuthStore();
   const [isRefilling, setIsRefilling] = useState(false);
   
   useEffect(() => {
@@ -35,12 +36,31 @@ export default function ProfileScreen() {
   };
 
   const handleEnergyRefill = async () => {
-    if (isRefilling) return;
+    if (isRefilling || !user) return;
     
     try {
       setIsRefilling(true);
-      // TODO: Implement energy refill logic here
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulated delay
+      
+      // Check if user has refills available
+      if (user.energyRefills <= 0) {
+        Alert.alert('No Refills', 'You have no energy refills available.');
+        return;
+      }
+      
+      // Check if energy is already full
+      if (user.dailyEnergy >= user.maxDailyEnergy) {
+        Alert.alert('Energy Full', 'Your energy is already at maximum.');
+        return;
+      }
+      
+      // Update user data
+      await updateUser({
+        dailyEnergy: user.maxDailyEnergy,
+        energyRefills: user.energyRefills - 1,
+        lastEnergyRefresh: new Date().toISOString()
+      });
+      
+      Alert.alert('Success', 'Energy fully restored!');
       await refreshUser();
     } catch (error) {
       console.error('Energy refill error:', error);
@@ -76,9 +96,33 @@ export default function ProfileScreen() {
   };
   
   const handleUseItem = async (type: string, name: string) => {
+    if (!user) return;
+    
     try {
-      // TODO: Implement item usage logic with Supabase
-      Alert.alert('Success', `Used ${name} successfully!`);
+      if (type === 'energy-refill') {
+        // Energy refill functionality
+        if (user.energyRefills <= 0) {
+          Alert.alert('No Refills', 'You have no energy refills available.');
+          return;
+        }
+        
+        if (user.dailyEnergy >= user.maxDailyEnergy) {
+          Alert.alert('Energy Full', 'Your energy is already at maximum.');
+          return;
+        }
+        
+        await updateUser({
+          dailyEnergy: user.maxDailyEnergy,
+          energyRefills: user.energyRefills - 1,
+          lastEnergyRefresh: new Date().toISOString()
+        });
+        
+        Alert.alert('Success', 'Used Daily Energy Refill. Energy fully restored!');
+      } else {
+        // TODO: Implement other item usage logic with Supabase
+        Alert.alert('Not Implemented', `${name} usage is not implemented yet.`);
+      }
+      
       await refreshUser();
     } catch (error) {
       console.error('Error using item:', error);

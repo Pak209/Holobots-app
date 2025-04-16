@@ -2,6 +2,8 @@
  * Utility functions for Holobots
  */
 
+import { Holobot } from '@/types/holobots';
+
 /**
  * Get the image URL for a Holobot based on its name or key
  * @param nameOrKey The name or key of the Holobot
@@ -84,5 +86,15 @@ export const checkLevelUp = (currentExp: number, currentLevel: number): { newLev
   return {
     newLevel: currentLevel,
     remainingExp: currentExp
+  };
+};
+
+export const applyAttributeBoosts = (holobot: Holobot): Holobot => {
+  return {
+    ...holobot,
+    attack: holobot.attack * (1 + (holobot.attributeBoosts?.attack || 0) / 100),
+    defense: holobot.defense * (1 + (holobot.attributeBoosts?.defense || 0) / 100),
+    speed: holobot.speed * (1 + (holobot.attributeBoosts?.speed || 0) / 100),
+    health: holobot.health * (1 + (holobot.attributeBoosts?.health || 0) / 100),
   };
 };

@@ -50,7 +50,7 @@ class HealthService {
   }
   
   async requestPermissions(): Promise<boolean> {
-    if (!this.isAvailable || Platform.OS !== 'ios') {
+    if (!this.isAvailable) {
       console.log('HealthKit not available on this platform');
       return false;
     }
@@ -60,22 +60,56 @@ class HealthService {
         permissions: {
           read: [
             AppleHealthKit.Constants.Permissions.StepCount,
-            AppleHealthKit.Constants.Permissions.DistanceWalkingRunning
+            AppleHealthKit.Constants.Permissions.DistanceWalkingRunning,
+            AppleHealthKit.Constants.Permissions.ActiveEnergyBurned
           ],
           write: []
         }
       };
       
       return new Promise((resolve) => {
-        AppleHealthKit.initHealthKit(permissions, (error) => {
+        AppleHealthKit.initHealthKit(permissions, async (error) => {
           if (error) {
             console.error('Error initializing HealthKit:', error);
             resolve(false);
             return;
           }
           
-          this.setConnected(true);
-          resolve(true);
+          // After initialization, check if permissions were actually granted
+          AppleHealthKit.isAvailable((error, available) => {
+            if (error) {
+              console.error('Error checking HealthKit availability:', error);
+              resolve(false);
+              return;
+            }
+            
+            if (!available) {
+              console.log('HealthKit is not available on this device');
+              resolve(false);
+              return;
+            }
+            
+            // Check if we have the permissions we need
+            AppleHealthKit.getAuthStatus(permissions, (error, status) => {
+              if (error) {
+                console.error('Error checking HealthKit auth status:', error);
+                resolve(false);
+                return;
+              }
+              
+              const hasPermissions = status.permissions.read.every(
+                (permission) => permission.status === 'authorized'
+              );
+              
+              if (hasPermissions) {
+                this.setConnected(true);
+                resolve(true);
+              } else {
+                console.log('HealthKit permissions not granted');
+                resolve(false);
+              }
+            });
+          });
         });
       });
     } catch (error) {

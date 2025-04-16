@@ -2,24 +2,34 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, UserProfile } from '@/types/user';
-import { supabase } from '@/lib/supabase';
+import { supabase, getActiveSession, refreshSession, clearAuthData } from '@/lib/supabase';
 import { router } from 'expo-router';
+import { AuthError, User as SupabaseUser } from '@supabase/supabase-js';
 
 interface AuthState {
-  user: User | null;
+  user: SupabaseUser | null;
   profile: UserProfile | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
+  session: any | null;
+  rateLimitState: RateLimitState;
+}
+
+interface RateLimitState {
+  attempts: number;
+  lastAttempt: number;
+  isBlocked: boolean;
 }
 
 interface AuthStore extends AuthState {
+  initialize: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, username: string) => Promise<void>;
+  signUp: (email: string, password: string, username?: string) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateUser: (userData: Partial<User>) => Promise<void>;
-  updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
+  updateProfile: (data: { username?: string; avatar_url?: string }) => Promise<void>;
   linkWallet: (walletAddress: string) => Promise<void>;
   refreshUser: () => Promise<void>;
   clearError: () => void;
@@ -141,131 +151,121 @@ const mapDatabaseToUserProfile = (data: any): UserProfile => {
   };
 };
 
+const RATE_LIMIT_MAX_ATTEMPTS = 5;
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
+const INITIAL_RATE_LIMIT_STATE: RateLimitState = {
+  attempts: 0,
+  lastAttempt: 0,
+  isBlocked: false,
+};
+
 export const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
       user: null,
       profile: null,
       isAuthenticated: false,
-      isLoading: false,
+      isLoading: true,
       error: null,
+      session: null,
+      rateLimitState: INITIAL_RATE_LIMIT_STATE,
+
+      initialize: async () => {
+        try {
+          const session = await getActiveSession();
+          set({ 
+            session,
+            user: session?.user ?? null,
+            isLoading: false 
+          });
+        } catch (error) {
+          set({ 
+            error: 'Failed to initialize session',
+            isLoading: false 
+          });
+        }
+      },
 
       signIn: async (email: string, password: string) => {
+        const { rateLimitState } = get();
+        const now = Date.now();
+
+        // Check rate limiting
+        if (rateLimitState.isBlocked && now - rateLimitState.lastAttempt < RATE_LIMIT_WINDOW) {
+          throw new Error(`Too many login attempts. Please try again in ${Math.ceil((RATE_LIMIT_WINDOW - (now - rateLimitState.lastAttempt)) / 60000)} minutes.`);
+        }
+
+        // Reset rate limiting if window has passed
+        if (now - rateLimitState.lastAttempt >= RATE_LIMIT_WINDOW) {
+          set({ rateLimitState: INITIAL_RATE_LIMIT_STATE });
+        }
+
         try {
           set({ isLoading: true, error: null });
-          
-          // Try to sign in with Supabase
           const { data, error } = await supabase.auth.signInWithPassword({
             email,
-            password
+            password,
           });
-          
-          if (error) throw new Error(error.message);
-          
-          if (data.user) {
-            // Fetch user profile from Supabase
-            const { data: profileData, error: profileError } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', data.user.id)
-              .single();
-              
-            if (profileError) {
-              console.error('Error fetching profile:', profileError);
-              throw new Error('Failed to load user profile');
-            }
-            
-            // If we have profile data, use it
-            if (profileData) {
-              const userProfile = mapDatabaseToUserProfile(profileData);
-              set({
-                user: userProfile,
-                profile: userProfile,
-                isAuthenticated: true,
-                isLoading: false
-              });
-              
-              // Navigate to the main app
-              router.replace('/(tabs)');
-            } else {
-              throw new Error('User profile not found');
-            }
-          } else {
-            throw new Error('Authentication failed');
-          }
+
+          if (error) throw error;
+
+          set({
+            user: data.user,
+            session: data.session,
+            isLoading: false,
+            rateLimitState: INITIAL_RATE_LIMIT_STATE, // Reset on successful login
+          });
         } catch (error) {
-          console.error('Sign in error:', error);
+          const newAttempts = rateLimitState.attempts + 1;
+          const isBlocked = newAttempts >= RATE_LIMIT_MAX_ATTEMPTS;
+
           set({
             isLoading: false,
-            error: error instanceof Error ? error.message : 'Failed to sign in'
+            error: (error as AuthError).message,
+            rateLimitState: {
+              attempts: newAttempts,
+              lastAttempt: now,
+              isBlocked,
+            },
           });
+
           throw error;
         }
       },
 
-      signUp: async (email: string, password: string, username: string) => {
+      signUp: async (email: string, password: string, username?: string) => {
         try {
           set({ isLoading: true, error: null });
           
-          // Try to sign up with Supabase
+          // Sign up the user
           const { data, error } = await supabase.auth.signUp({
             email,
             password,
-            options: {
-              data: { username }
-            }
           });
-          
-          if (error) throw new Error(error.message);
-          
-          if (data.user) {
-            // Create a new profile in Supabase
-            const newUserData = {
-              id: data.user.id,
-              username,
-              email: data.user.email,
-              holos_tokens: 1000, // Starting amount
-              gacha_tickets: 5,
-              daily_energy: 100,
-              max_daily_energy: 100,
-              last_energy_refresh: new Date().toISOString(),
-              blueprints: {
-                ace: 10 // Start with enough blueprints to mint Ace
-              }
-            };
-            
+
+          if (error) throw error;
+
+          // If username is provided, update the user's profile with the username
+          if (username && data.user) {
             const { error: profileError } = await supabase
               .from('profiles')
-              .insert(newUserData);
+              .update({ username })
+              .eq('id', data.user.id);
               
             if (profileError) {
-              console.error('Error creating profile:', profileError);
-              throw new Error('Failed to create user profile');
+              console.error('Error updating username:', profileError);
             }
-            
-            // Map to our app's user profile format
-            const userProfile = mapDatabaseToUserProfile({
-              ...newUserData,
-              id: data.user.id
-            });
-            
-            set({
-              user: userProfile,
-              profile: userProfile,
-              isAuthenticated: true,
-              isLoading: false
-            });
-            
-            // Navigate to the main app
-            router.replace('/(tabs)');
-          } else {
-            throw new Error('Registration failed');
           }
+
+          set({
+            user: data.user,
+            session: data.session,
+            isLoading: false,
+          });
         } catch (error) {
-          console.error('Sign up error:', error);
           set({
             isLoading: false,
-            error: error instanceof Error ? error.message : 'Failed to sign up'
+            error: (error as AuthError).message,
           });
           throw error;
         }
@@ -273,54 +273,38 @@ export const useAuthStore = create<AuthStore>()(
 
       signOut: async () => {
         try {
-          set({ isLoading: true });
-          
-          // Sign out from Supabase
+          set({ isLoading: true, error: null });
           const { error } = await supabase.auth.signOut();
-          
-          if (error) throw new Error(error.message);
-          
+          if (error) throw error;
+
+          await clearAuthData();
           set({
             user: null,
-            profile: null,
-            isAuthenticated: false,
+            session: null,
             isLoading: false,
-            error: null
+            rateLimitState: INITIAL_RATE_LIMIT_STATE,
           });
-          
-          // Navigate to the auth screen
-          router.replace('/(auth)');
         } catch (error) {
-          console.error('Sign out error:', error);
-          
-          // Still sign out even if there's an error
           set({
-            user: null,
-            profile: null,
-            isAuthenticated: false,
             isLoading: false,
-            error: error instanceof Error ? error.message : 'Failed to sign out'
+            error: (error as AuthError).message,
           });
-          
-          // Navigate to the auth screen
-          router.replace('/(auth)');
+          throw error;
         }
       },
 
       resetPassword: async (email: string) => {
         try {
           set({ isLoading: true, error: null });
-          
-          // Send password reset email with Supabase
-          const { error } = await supabase.auth.resetPasswordForEmail(email);
-          
-          if (error) throw new Error(error.message);
-          
+          const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: `${window.location.origin}/reset-password`,
+          });
+          if (error) throw error;
           set({ isLoading: false });
         } catch (error) {
           set({
             isLoading: false,
-            error: error instanceof Error ? error.message : 'Failed to reset password'
+            error: (error as AuthError).message,
           });
           throw error;
         }
@@ -391,81 +375,29 @@ export const useAuthStore = create<AuthStore>()(
         }
       },
 
-      updateProfile: async (updates: Partial<UserProfile>) => {
+      updateProfile: async (data: { username?: string; avatar_url?: string }) => {
         try {
-          const { profile } = get();
-          if (!profile) throw new Error('User profile not found');
-          
           set({ isLoading: true, error: null });
-          
-          // Update profile in Supabase
-          const { data: { session } } = await supabase.auth.getSession();
-          
-          if (session?.user) {
-            // Convert to database format
-            const dbUpdates: any = {};
-            
-            // Handle energy refill specifically
-            if (updates.dailyEnergy !== undefined) {
-              // If using energy refill, ensure energyRefills is decremented
-              if (updates.energyRefills !== undefined && updates.energyRefills < (profile.energyRefills || 0)) {
-                dbUpdates.energy_refills = updates.energyRefills;
-                dbUpdates.daily_energy = profile.maxDailyEnergy; // Set to max energy when using refill
-              } else {
-                dbUpdates.daily_energy = updates.dailyEnergy;
-              }
-            }
+          const { error } = await supabase.auth.updateUser({
+            data: {
+              ...data,
+              updated_at: new Date().toISOString(),
+            },
+          });
 
-            // Handle other standard fields
-            if (updates.username) dbUpdates.username = updates.username;
-            if (updates.holosTokens !== undefined) dbUpdates.holos_tokens = updates.holosTokens;
-            if (updates.gachaTickets !== undefined) dbUpdates.gacha_tickets = updates.gachaTickets;
-            if (updates.maxDailyEnergy !== undefined) dbUpdates.max_daily_energy = updates.maxDailyEnergy;
-            if (updates.lastEnergyRefresh) dbUpdates.last_energy_refresh = updates.lastEnergyRefresh;
-            if (updates.blueprints) dbUpdates.blueprints = updates.blueprints;
-            if (updates.walletAddress) dbUpdates.wallet_address = updates.walletAddress;
-            if (updates.energyRefills !== undefined) dbUpdates.energy_refills = updates.energyRefills;
-            if (updates.arenaPasses !== undefined) dbUpdates.arena_passes = updates.arenaPasses;
-            if (updates.expBoosters !== undefined) dbUpdates.exp_boosters = updates.expBoosters;
-            if (updates.rankSkips !== undefined) dbUpdates.rank_skips = updates.rankSkips;
-            if (updates.level !== undefined) dbUpdates.level = updates.level;
-            if (updates.experience !== undefined) dbUpdates.experience = updates.experience;
-            if (updates.player_rank) dbUpdates.player_rank = updates.player_rank;
-            if (updates.prestige_count !== undefined) dbUpdates.prestige_count = updates.prestige_count;
-            
-            const { error } = await supabase
-              .from('profiles')
-              .update(dbUpdates)
-              .eq('id', session.user.id);
-              
-            if (error) throw new Error(error.message);
-            
-            // Fetch updated profile to ensure we have all the correct data
-            const { data: updatedData, error: profileError } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', session.user.id)
-              .single();
-              
-            if (profileError) throw new Error(profileError.message);
-            
-            if (updatedData) {
-              const updatedProfile = mapDatabaseToUserProfile(updatedData);
-              set({
-                user: updatedProfile,
-                profile: updatedProfile,
-                isLoading: false
-              });
-              return;
-            }
-          }
-          
-          throw new Error('Failed to update profile data');
+          if (error) throw error;
+
+          // Refresh session to get updated user data
+          const session = await refreshSession();
+          set({
+            session,
+            user: session?.user ?? null,
+            isLoading: false,
+          });
         } catch (error) {
-          console.error('Update profile error:', error);
           set({
             isLoading: false,
-            error: error instanceof Error ? error.message : 'Failed to update profile'
+            error: (error as AuthError).message,
           });
           throw error;
         }

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
 import { colors } from '@/constants/colors';
 import { useHolobotStore } from '@/store/holobot-store';
 import { useAuthStore } from '@/store/auth-store';
+import { useAuth } from '@/hooks/useAuth';
+import { useSupabase } from '@/hooks/useSupabase';
 import { 
   MapPin, 
   Swords, 
@@ -23,101 +25,72 @@ import { QuestBattleBanner } from '@/components/quests/QuestBattleBanner';
 import { QuestResultsScreen } from '@/components/quests/QuestResultsScreen';
 import { HOLOBOT_STATS } from '@/types/holobot';
 import { HolobotQuestSelector } from '@/components/quests/HolobotQuestSelector';
-
-// Quest difficulty tiers
-const EXPLORATION_TIERS = {
-  normal: { 
-    level: 5, 
-    energyCost: 10, 
-    rewards: { 
-      blueprintPieces: 1,
-      holosTokens: 50
-    }
-  },
-  challenge: { 
-    level: 15, 
-    energyCost: 20, 
-    rewards: { 
-      blueprintPieces: 2,
-      holosTokens: 100
-    }
-  },
-  extreme: { 
-    level: 30, 
-    energyCost: 30, 
-    rewards: { 
-      blueprintPieces: 3,
-      holosTokens: 200
-    }
-  }
-};
-
-const BOSS_TIERS = {
-  tier1: { 
-    level: 10, 
-    energyCost: 40, 
-    rewards: { 
-      blueprintPieces: 5,
-      holosTokens: 1000,
-      gachaTickets: 5,
-      xpMultiplier: 1,
-      squadXp: 50 // Base XP for each squad member
-    }
-  },
-  tier2: { 
-    level: 25, 
-    energyCost: 60, 
-    rewards: { 
-      blueprintPieces: 10,
-      holosTokens: 2500,
-      gachaTickets: 10,
-      xpMultiplier: 2,
-      squadXp: 100 // Base XP for each squad member
-    }
-  },
-  tier3: { 
-    level: 50, 
-    energyCost: 80, 
-    rewards: { 
-      blueprintPieces: 15,
-      holosTokens: 5000,
-      gachaTickets: 15,
-      xpMultiplier: 3,
-      squadXp: 200 // Base XP for each squad member
-    }
-  }
-};
+import { HolobotKey, Holobot } from '@/types/holobots';
+import { User, BlueprintMap, UserProfile } from '@/types/user';
+import {
+  QuestTier,
+  QuestTiers,
+  HolobotCooldowns,
+  QuestHolobot,
+  SquadExpResult,
+  BlueprintReward,
+  EXPLORATION_TIERS,
+  BOSS_TIERS,
+  QUEST_ENERGY_COST
+} from '@/types/quests';
+import { QUEST_TIERS } from '@/constants/quests';
 
 // Holobot cooldown in minutes
 const COOLDOWN_MINUTES = 30;
 
-export function QuestGrid() {
-  const { user, updateUser } = useAuthStore();
+interface QuestGridProps {
+  user: UserProfile;
+}
+
+interface QuestGridState {
+  explorationHolobot: HolobotKey | null;
+  selectedExplorationTier: keyof typeof EXPLORATION_TIERS | null;
+  isExplorationQuesting: boolean;
+  bossHolobots: HolobotKey[];
+  selectedBoss: HolobotKey;
+  selectedBossTier: keyof typeof BOSS_TIERS | null;
+  isBossQuesting: boolean;
+  holobotCooldowns: HolobotCooldowns;
+  showBattleBanner: boolean;
+  isBossBattle: boolean;
+  currentBattleHolobots: HolobotKey[];
+  currentBossHolobot: HolobotKey;
+  showResultsScreen: boolean;
+  battleSuccess: boolean;
+  squadExpResults: SquadExpResult[];
+  blueprintReward: BlueprintReward | undefined;
+  holosReward: number;
+}
+
+const QuestGrid: React.FC<QuestGridProps> = ({ user }) => {
+  const { updateUser } = useAuthStore();
   const { holobots, fetchHolobots, isLoading: holobotsLoading } = useHolobotStore();
   
-  const [explorationHolobot, setExplorationHolobot] = useState("");
-  const [selectedExplorationTier, setSelectedExplorationTier] = useState("normal");
+  const [explorationHolobot, setExplorationHolobot] = useState<HolobotKey | null>(null);
+  const [selectedExplorationTier, setSelectedExplorationTier] = useState<keyof typeof EXPLORATION_TIERS | null>(null);
   const [isExplorationQuesting, setIsExplorationQuesting] = useState(false);
   
-  const [bossHolobots, setBossHolobots] = useState([]);
-  const [selectedBoss, setSelectedBoss] = useState("");
-  const [selectedBossTier, setSelectedBossTier] = useState("tier1");
+  const [bossHolobots, setBossHolobots] = useState<HolobotKey[]>([]);
+  const [selectedBoss, setSelectedBoss] = useState<HolobotKey>("");
+  const [selectedBossTier, setSelectedBossTier] = useState<keyof typeof BOSS_TIERS | null>(null);
   const [isBossQuesting, setIsBossQuesting] = useState(false);
   
-  // Cooldown state for holobots
-  const [holobotCooldowns, setHolobotCooldowns] = useState({});
+  const [holobotCooldowns, setHolobotCooldowns] = useState<HolobotCooldowns>({});
   
-  // Battle UI states
   const [showBattleBanner, setShowBattleBanner] = useState(false);
   const [isBossBattle, setIsBossBattle] = useState(false);
-  const [currentBattleHolobots, setCurrentBattleHolobots] = useState([]);
-  const [currentBossHolobot, setCurrentBossHolobot] = useState("");
+  const [currentBattleHolobots, setCurrentBattleHolobots] = useState<HolobotKey[]>([]);
+  const [currentBossHolobot, setCurrentBossHolobot] = useState<HolobotKey>("");
   
-  // Results screen states
   const [showResultsScreen, setShowResultsScreen] = useState(false);
   const [battleSuccess, setBattleSuccess] = useState(false);
-  const [squadExpResults, setSquadExpResults] = useState([]);
-  const [blueprintReward, setBlueprintReward] = useState(undefined);
+  const [squadExpResults, setSquadExpResults] = useState<SquadExpResult[]>([]);
+  const [blueprintReward, setBlueprintReward] = useState<BlueprintReward>();
   const [holosReward, setHolosReward] = useState(0);
 
   useEffect(() => {
@@ -127,35 +100,39 @@ export function QuestGrid() {
   }, []);
 
   // Get the user's holobots that are not on cooldown
-  const getAvailableHolobots = () => {
+  const getAvailableHolobots = (): QuestHolobot[] => {
     if (!user?.holobots) return [];
     
-    return user.holobots.filter(holobot => {
+    return Object.entries(user.holobots).map(([key, holobot]) => {
       const holobotKey = getHolobotKeyByName(holobot.name);
-      return !holobotCooldowns[holobotKey] || new Date() > new Date(holobotCooldowns[holobotKey]);
-    });
-  };
-
-  // Get all user holobots with cooldown status
-  const getAllUserHolobots = () => {
-    if (!user?.holobots) return [];
-    
-    return user.holobots.map(holobot => {
-      const holobotKey = getHolobotKeyByName(holobot.name);
-      const isOnCooldown = holobotCooldowns[holobotKey] && new Date() <= new Date(holobotCooldowns[holobotKey]);
-      const cooldownTimeRemaining = getCooldownTimeRemaining(holobotKey);
-      
+      const isOnCooldown = Boolean(holobotCooldowns[holobotKey] && new Date() <= new Date(holobotCooldowns[holobotKey]));
       return {
         ...holobot,
         key: holobotKey,
         isOnCooldown,
-        cooldownTimeRemaining
+        cooldownTimeRemaining: getCooldownTimeRemaining(holobotKey)
+      };
+    });
+  };
+
+  // Get all user holobots with cooldown status
+  const getAllUserHolobots = (): QuestHolobot[] => {
+    if (!user?.holobots) return [];
+    
+    return Object.entries(user.holobots).map(([key, holobot]) => {
+      const holobotKey = getHolobotKeyByName(holobot.name);
+      const isOnCooldown = Boolean(holobotCooldowns[holobotKey] && new Date() <= new Date(holobotCooldowns[holobotKey]));
+      return {
+        ...holobot,
+        key: holobotKey,
+        isOnCooldown,
+        cooldownTimeRemaining: getCooldownTimeRemaining(holobotKey)
       };
     });
   };
 
   // Get the holobot key from HOLOBOT_STATS based on name
-  const getHolobotKeyByName = (name) => {
+  const getHolobotKeyByName = (name: string): HolobotKey => {
     const lowerName = name.toLowerCase();
     const key = Object.keys(HOLOBOT_STATS).find(
       k => HOLOBOT_STATS[k].name.toLowerCase() === lowerName
@@ -164,7 +141,7 @@ export function QuestGrid() {
   };
 
   // Set a holobot on cooldown
-  const setHolobotOnCooldown = (holobotKey) => {
+  const setHolobotOnCooldown = (holobotKey: HolobotKey): void => {
     const cooldownEnd = new Date();
     cooldownEnd.setMinutes(cooldownEnd.getMinutes() + COOLDOWN_MINUTES);
     
@@ -175,7 +152,7 @@ export function QuestGrid() {
   };
 
   // Get cooldown progress percentage for a holobot
-  const getCooldownProgress = (holobotKey) => {
+  const getCooldownProgress = (holobotKey: HolobotKey): number => {
     if (!holobotCooldowns[holobotKey]) return 100;
     
     const now = new Date();
@@ -193,7 +170,7 @@ export function QuestGrid() {
   };
 
   // Get formatted time remaining for cooldown
-  const getCooldownTimeRemaining = (holobotKey) => {
+  const getCooldownTimeRemaining = (holobotKey: HolobotKey): string => {
     if (!holobotCooldowns[holobotKey]) return "Ready";
     
     const now = new Date();
@@ -205,6 +182,56 @@ export function QuestGrid() {
     const diffMins = Math.ceil(diffMs / 60000);
     
     return `${diffMins} min${diffMins !== 1 ? 's' : ''}`;
+  };
+
+  // Update the find operations to work with Record<string, Holobot>
+  const findHolobotByName = (name: string): Holobot | undefined => {
+    return Object.values(user?.holobots || {}).find(h => h.name === name);
+  };
+
+  // Update squad experience with proper type handling
+  const updateSquadExperience = async (
+    squad: HolobotKey[],
+    experienceGained: number
+  ): Promise<Record<string, Holobot>> => {
+    const updatedHolobots: Record<string, Holobot> = {};
+    
+    squad.forEach((holobotKey) => {
+      const holobot = holobots[holobotKey];
+      if (holobot) {
+        updatedHolobots[holobotKey] = {
+          ...holobot,
+          experience: holobot.experience + experienceGained,
+        };
+      }
+    });
+    
+    return updatedHolobots;
+  };
+
+  // Helper function to calculate required XP for level
+  const calculateExperience = (level: number): number => {
+    return Math.floor(100 * Math.pow(level, 2));
+  };
+  
+  // Helper function to determine if level up occurs
+  const getNewLevel = (currentXp: number, currentLevel: number): number => {
+    const requiredXp = calculateExperience(currentLevel);
+    if (currentXp >= requiredXp && currentLevel < 50) {
+      return currentLevel + 1;
+    }
+    return currentLevel;
+  };
+
+  const availableHolobots = Object.values(user?.holobots || {}).filter((holobot): holobot is Holobot => {
+    return !holobot.isLocked && holobot.level >= BOSS_TIERS[selectedBossTier].level;
+  });
+
+  const allUserHolobots = getAllUserHolobots();
+
+  // Handle holobot selection for exploration
+  const handleExplorationHolobotSelect = (holobotKey: HolobotKey): void => {
+    setExplorationHolobot(holobotKey);
   };
 
   // Start exploration quest
@@ -261,13 +288,13 @@ export function QuestGrid() {
         // Update user's tokens and energy
         if (user) {
           // Add blueprints rewards - random selection of holobot for exploration
-          const randomHolobotKey = randomOpponentKey;
+          const randomHolobotKey: HolobotKey = randomOpponentKey as HolobotKey;
           
           // Get current blueprints or initialize empty object
-          const currentBlueprints = user.blueprints || {};
+          const currentBlueprints: BlueprintMap = user.blueprints || {};
           
           // Update the blueprint count for the random holobot
-          const updatedBlueprints = {
+          const updatedBlueprints: BlueprintMap = {
             ...currentBlueprints,
             [randomHolobotKey]: (currentBlueprints[randomHolobotKey] || 0) + tier.rewards.blueprintPieces
           };
@@ -327,7 +354,7 @@ export function QuestGrid() {
   };
 
   // Handle selecting a holobot for the boss squad
-  const handleSelectBossHolobot = (holobotKey) => {
+  const handleSelectBossHolobot = (holobotKey: HolobotKey): void => {
     if (bossHolobots.includes(holobotKey)) {
       // Remove if already selected
       setBossHolobots(prev => prev.filter(key => key !== holobotKey));
@@ -412,8 +439,22 @@ export function QuestGrid() {
       const isSuccess = Math.random() < successChance;
       
       if (isSuccess) {
+        // Ensure tier exists and has required properties
+        if (!tier?.rewards) {
+          console.error('Tier or rewards not found');
+          return;
+        }
+
+        const {
+          squadXp = 0,
+          xpMultiplier = 1,
+          blueprintPieces = 0,
+          holosTokens = 0,
+          gachaTickets = 0
+        } = tier.rewards;
+
         // Update XP for all Holobots in the squad
-        const updatedHolobots = await updateSquadExperience(bossHolobots, tier.rewards.squadXp, tier.rewards.xpMultiplier);
+        const updatedHolobots = await updateSquadExperience(bossHolobots, squadXp, xpMultiplier);
         
         // Get current blueprints or initialize empty object
         const currentBlueprints = user.blueprints || {};
@@ -421,16 +462,16 @@ export function QuestGrid() {
         // Update the blueprint count for the boss holobot
         const updatedBlueprints = {
           ...currentBlueprints,
-          [selectedBoss]: (currentBlueprints[selectedBoss] || 0) + tier.rewards.blueprintPieces
+          [selectedBoss]: (currentBlueprints[selectedBoss] || 0) + blueprintPieces
         };
         
         // Update user's tokens, tickets, and energy
         if (user) {
           await updateUser({
             dailyEnergy: user.dailyEnergy - tier.energyCost,
-            holosTokens: (user.holosTokens || 0) + tier.rewards.holosTokens,
-            gachaTickets: (user.gachaTickets || 0) + tier.rewards.gachaTickets,
-            holobots: updatedHolobots, // Update with new XP values
+            holosTokens: (user.holosTokens || 0) + holosTokens,
+            gachaTickets: (user.gachaTickets || 0) + gachaTickets,
+            holobots: updatedHolobots,
             blueprints: updatedBlueprints
           });
         }
@@ -439,9 +480,9 @@ export function QuestGrid() {
         setBattleSuccess(true);
         setBlueprintReward({
           holobotKey: selectedBoss,
-          amount: tier.rewards.blueprintPieces
+          amount: blueprintPieces
         });
-        setHolosReward(tier.rewards.holosTokens);
+        setHolosReward(holosTokens);
         setShowResultsScreen(true);
       } else {
         // Even on failure, Holobots gain some experience (half of success amount)
@@ -469,7 +510,7 @@ export function QuestGrid() {
         if (user) {
           await updateUser({
             dailyEnergy: user.dailyEnergy - tier.energyCost,
-            holobots: updatedHolobots, // Update with new XP values
+            holobots: updatedHolobots,
             blueprints: updatedBlueprints
           });
         }
@@ -493,109 +534,6 @@ export function QuestGrid() {
       setIsBossQuesting(false);
       setBossHolobots([]);
     }
-  };
-
-  // New function to update experience for all Holobots in the squad - update to track XP messages
-  const updateSquadExperience = async (squadHolobotKeys, baseXp, multiplier = 1) => {
-    if (!user?.holobots || !Array.isArray(user.holobots)) {
-      return [];
-    }
-    
-    // Create a copy of holobots to update
-    const updatedHolobots = [...user.holobots];
-    
-    // Track XP gained messages for results screen
-    const xpMessages = [];
-    
-    // Update each Holobot in the squad
-    for (const holobotKey of squadHolobotKeys) {
-      const holobotName = HOLOBOT_STATS[holobotKey].name;
-      
-      // Find the Holobot in the user's collection
-      const holobotIndex = updatedHolobots.findIndex(
-        h => h.name.toLowerCase() === holobotName.toLowerCase()
-      );
-      
-      if (holobotIndex === -1) continue;
-      
-      const holobot = updatedHolobots[holobotIndex];
-      
-      // Calculate XP gain based on level difference to boss
-      const levelDiff = holobot.level - BOSS_TIERS[selectedBossTier].level;
-      let xpModifier = 1;
-      
-      // Lower level Holobots get more XP
-      if (levelDiff < 0) {
-        // Up to 2x XP for Holobots with much lower level than the boss
-        xpModifier = Math.min(2, 1 + (Math.abs(levelDiff) * 0.05));
-      } else if (levelDiff > 10) {
-        // Reduced XP for much higher level Holobots
-        xpModifier = Math.max(0.2, 1 - (levelDiff * 0.05));
-      }
-      
-      // Calculate final XP with all modifiers
-      const xpGained = Math.floor(baseXp * xpModifier * multiplier);
-      
-      // Update the Holobot's experience
-      const newTotalXp = (holobot.experience || 0) + xpGained;
-      const newLevel = getNewLevel(newTotalXp, holobot.level);
-      
-      // Track level up for messaging
-      const didLevelUp = newLevel > holobot.level;
-      
-      // Update the Holobot
-      updatedHolobots[holobotIndex] = {
-        ...holobot,
-        experience: newTotalXp,
-        level: newLevel,
-        nextLevelExp: calculateExperience(newLevel)
-      };
-      
-      // Add to XP messages
-      xpMessages.push({
-        name: holobotName,
-        xp: xpGained,
-        levelUp: didLevelUp,
-        newLevel: newLevel
-      });
-    }
-    
-    // Set results for results screen
-    setSquadExpResults(xpMessages);
-    
-    // Show alerts for level ups
-    xpMessages.forEach(msg => {
-      if (msg.levelUp) {
-        Alert.alert(
-          `${msg.name} Leveled Up!`,
-          `Gained ${msg.xp} XP and reached level ${msg.newLevel}!`
-        );
-      }
-    });
-    
-    return updatedHolobots;
-  };
-
-  // Helper function to calculate required XP for level
-  const calculateExperience = (level) => {
-    return Math.floor(100 * Math.pow(level, 2));
-  };
-  
-  // Helper function to determine if level up occurs
-  const getNewLevel = (currentXp, currentLevel) => {
-    const requiredXp = calculateExperience(currentLevel);
-    if (currentXp >= requiredXp && currentLevel < 50) {
-      return currentLevel + 1;
-    }
-    return currentLevel;
-  };
-
-  const availableHolobots = getAvailableHolobots();
-  const allUserHolobots = getAllUserHolobots();
-
-  // Handle holobot selection for exploration
-  const handleExplorationHolobotSelect = (holobotKey) => {
-    setExplorationHolobot(holobotKey);
   };
 
   if (holobotsLoading) {
@@ -684,7 +622,7 @@ export function QuestGrid() {
                     styles.tierOption,
                     selectedExplorationTier === key && styles.tierOptionSelected
                   ]}
-                  onPress={() => setSelectedExplorationTier(key)}
+                  onPress={() => setSelectedExplorationTier(key as keyof typeof EXPLORATION_TIERS)}
                 >
                   <Text style={[
                     styles.tierOptionName,
@@ -881,7 +819,7 @@ export function QuestGrid() {
                     styles.bossTierOption,
                     selectedBossTier === key && styles.bossTierOptionSelected
                   ]}
-                  onPress={() => setSelectedBossTier(key)}
+                  onPress={() => setSelectedBossTier(key as keyof typeof BOSS_TIERS)}
                 >
                   <Text style={[
                     styles.tierOptionName,
@@ -1031,7 +969,89 @@ export function QuestGrid() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = StyleSheet.create<{
+  container: ViewStyle;
+  loadingContainer: ViewStyle;
+  loadingText: TextStyle;
+  infoCard: ViewStyle;
+  infoHeader: ViewStyle;
+  infoTitle: TextStyle;
+  infoContent: ViewStyle;
+  infoText: TextStyle;
+  infoList: ViewStyle;
+  infoItem: ViewStyle;
+  infoDot: ViewStyle;
+  infoItemText: TextStyle;
+  energyContainer: ViewStyle;
+  energyHeader: ViewStyle;
+  energyLabel: TextStyle;
+  energyValue: TextStyle;
+  energyBar: ViewStyle;
+  energyFill: ViewStyle;
+  questsGrid: ViewStyle;
+  questCard: ViewStyle;
+  questHeader: ViewStyle;
+  questTitleContainer: ViewStyle;
+  questTitle: TextStyle;
+  questSubtitle: TextStyle;
+  questContent: ViewStyle;
+  sectionLabel: TextStyle;
+  holobotSelector: ViewStyle;
+  holobotSelectorContent: ViewStyle;
+  holobotOption: ViewStyle;
+  holobotOptionSelected: ViewStyle;
+  holobotOptionName: TextStyle;
+  holobotOptionNameSelected: TextStyle;
+  holobotOptionLevel: TextStyle;
+  noHolobotsMessage: ViewStyle;
+  noHolobotsText: TextStyle;
+  tierSelector: ViewStyle;
+  tierOption: ViewStyle;
+  tierOptionSelected: ViewStyle;
+  squadHolobotOptionName: TextStyle;
+  squadHolobotOptionNameCooldown: TextStyle;
+  squadHolobotOptionDetails: ViewStyle;
+  squadHolobotOptionLevel: TextStyle;
+  squadHolobotOptionLevelCooldown: TextStyle;
+  cooldownBadge: ViewStyle;
+  cooldownBadgeText: TextStyle;
+  bossSelector: ViewStyle;
+  bossSelectorContent: ViewStyle;
+  bossOption: ViewStyle;
+  bossOptionSelected: ViewStyle;
+  bossOptionName: TextStyle;
+  bossOptionNameSelected: TextStyle;
+  bossTierOption: ViewStyle;
+  bossTierOptionSelected: ViewStyle;
+  tierOptionName: TextStyle;
+  tierOptionNameSelected: TextStyle;
+  tierOptionDetails: ViewStyle;
+  tierOptionLevel: TextStyle;
+  tierOptionLevelSelected: TextStyle;
+  tierOptionEnergy: TextStyle;
+  tierOptionEnergySelected: TextStyle;
+  rewardsContainer: ViewStyle;
+  bossRewardsContainer: ViewStyle;
+  rewardsTitle: TextStyle;
+  rewardsGrid: ViewStyle;
+  rewardItem: ViewStyle;
+  rewardText: TextStyle;
+  questButton: ViewStyle;
+  cooldownsCard: ViewStyle;
+  cooldownsHeader: ViewStyle;
+  cooldownsTitle: TextStyle;
+  cooldownsGrid: ViewStyle;
+  cooldownItem: ViewStyle;
+  cooldownItemReady: ViewStyle;
+  cooldownItemActive: ViewStyle;
+  cooldownItemHeader: ViewStyle;
+  cooldownItemName: TextStyle;
+  cooldownItemTime: TextStyle;
+  cooldownItemTimeReady: TextStyle;
+  cooldownItemTimeActive: TextStyle;
+  cooldownProgressBar: ViewStyle;
+  cooldownProgressFill: ViewStyle;
+}>({
   container: {
     flex: 1,
   },
@@ -1166,11 +1186,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.backgroundLighter,
     borderRadius: 8,
     padding: 12,
-    marginRight: 8,
+    marginHorizontal: 4,
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
-    minWidth: 100,
-    alignItems: 'center',
   },
   holobotOptionSelected: {
     backgroundColor: colors.secondary + '20',
@@ -1498,3 +1517,5 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
 });
+
+export default QuestGrid;

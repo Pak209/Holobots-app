@@ -54,6 +54,10 @@ interface FitnessStore extends FitnessState {
   startTrainingSession: () => Promise<void>;
   endTrainingSession: () => Promise<TrainingSession>;
   updateTrainingStats: () => Promise<void>;
+  syncTrainingSession: (session: TrainingSession) => Promise<void>;
+  setHealthPermission: (value: boolean) => void;
+  setHealthConnection: (value: boolean) => void;
+  setIsLoading: (value: boolean) => void;
 }
 
 // Initial fitness data
@@ -402,7 +406,23 @@ export const useFitnessStore = create<FitnessStore>()(
         } catch (error) {
           console.error('Error updating training stats:', error);
         }
-      }
+      },
+
+      syncTrainingSession: async (session: TrainingSession) => {
+        set({ isLoading: true });
+        try {
+          // TODO: Implement sync with backend
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
+        } finally {
+          set({ isLoading: false });
+        }
+      },
+
+      setHealthPermission: (value: boolean) => set({ hasHealthPermission: value }),
+
+      setHealthConnection: (value: boolean) => set({ healthConnection: value }),
+
+      setIsLoading: (value: boolean) => set({ isLoading: value }),
     }),
     {
       name: 'holobots-fitness-storage',

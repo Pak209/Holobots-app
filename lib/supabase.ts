@@ -2,10 +2,17 @@ import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import { Database } from '@/types/supabase';
+import Constants from 'expo-constants';
 
-const supabaseUrl = "https://pfpidggrdnmfgrbncpyl.supabase.co";
-const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmcGlkZ2dyZG5tZmdyYm5jcHlsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDA3ODM5ODcsImV4cCI6MjA1NjM1OTk4N30.fyR2E6WWCGmBTK322Tre7RRMh65I55kaPHF5RYJKGgo";
+// Load environment variables
+const supabaseUrl = Constants.expoConfig?.extra?.SUPABASE_URL || process.env.SUPABASE_URL;
+const supabaseAnonKey = Constants.expoConfig?.extra?.SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Missing Supabase configuration. Please check your environment variables.');
+}
+
+// Enhanced Supabase client configuration
 export const supabase = createClient<Database>(
   supabaseUrl,
   supabaseAnonKey,
@@ -14,10 +21,49 @@ export const supabase = createClient<Database>(
       storage: AsyncStorage,
       autoRefreshToken: true,
       persistSession: true,
-      detectSessionInUrl: false
-    }
+      detectSessionInUrl: false,
+      flowType: 'pkce', // More secure authentication flow
+    },
+    global: {
+      headers: {
+        'X-App-Version': Constants.expoConfig?.version || '1.0.0',
+      },
+    },
   }
 );
+
+// Session management utilities
+export const getActiveSession = async () => {
+  const { data: { session }, error } = await supabase.auth.getSession();
+  if (error) {
+    console.error('Session retrieval error:', error.message);
+    return null;
+  }
+  return session;
+};
+
+export const refreshSession = async () => {
+  const { data: { session }, error } = await supabase.auth.refreshSession();
+  if (error) {
+    console.error('Session refresh error:', error.message);
+    return null;
+  }
+  return session;
+};
+
+// Security utility to clear sensitive data
+export const clearAuthData = async () => {
+  try {
+    await AsyncStorage.multiRemove([
+      'supabase.auth.token',
+      'supabase.auth.refreshToken',
+      'user_profile',
+      'auth_token'
+    ]);
+  } catch (error) {
+    console.error('Error clearing auth data:', error);
+  }
+};
 
 // Helper functions
 export const updateHolobotExperience = (holobots, holobotName, newExperience, newLevel) => {

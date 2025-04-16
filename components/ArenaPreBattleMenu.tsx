@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
 import { HolobotCard } from '@/components/HolobotCard';
@@ -62,22 +62,60 @@ export const ArenaPreBattleMenu: React.FC<ArenaPreBattleMenuProps> = ({
   };
 
   const handleHolobotSelect = (holobotKey: string) => {
-    setSelectedHolobot(holobotKey);
-    onHolobotSelect(holobotKey); // Notify parent component about the selection
+    try {
+      setSelectedHolobot(holobotKey);
+      onHolobotSelect(holobotKey); // Notify parent component about the selection
+    } catch (error) {
+      console.error('Error selecting holobot:', error);
+      Alert.alert(
+        "Selection Error",
+        "There was an error selecting your Holobot. Please try again."
+      );
+    }
   };
 
   const handlePayWithTokens = () => {
-    if (!selectedHolobot) {
-      return;
+    try {
+      if (!selectedHolobot) {
+        Alert.alert("Selection Required", "Please select a Holobot first");
+        return;
+      }
+      
+      if (!user || (user.holosTokens || 0) < entryFee) {
+        Alert.alert("Insufficient Tokens", `You need ${entryFee} Holos tokens to enter the Arena.`);
+        return;
+      }
+      
+      onEntryFeeMethod('tokens');
+    } catch (error) {
+      console.error('Error paying with tokens:', error);
+      Alert.alert(
+        "Payment Error",
+        "There was an error processing your payment. Please try again."
+      );
     }
-    onEntryFeeMethod('tokens');
   };
 
   const handleUseArenaPass = () => {
-    if (!selectedHolobot) {
-      return;
+    try {
+      if (!selectedHolobot) {
+        Alert.alert("Selection Required", "Please select a Holobot first");
+        return;
+      }
+      
+      if (!user || !(user.arena_passes && user.arena_passes > 0)) {
+        Alert.alert("No Arena Passes", "You don't have any Arena Passes available.");
+        return;
+      }
+      
+      onEntryFeeMethod('pass');
+    } catch (error) {
+      console.error('Error using arena pass:', error);
+      Alert.alert(
+        "Arena Pass Error",
+        "There was an error using your Arena Pass. Please try again."
+      );
     }
-    onEntryFeeMethod('pass');
   };
 
   // Calculate total attribute points spent

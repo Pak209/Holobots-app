@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, Alert } from 'react-native';
 import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
 import { ProgressBar } from '@/components/ProgressBar';
@@ -36,14 +36,51 @@ export const ArenaBattle: React.FC<ArenaBattleProps> = ({
   onBattleComplete,
   playerBoosts = {}
 }) => {
-  // Use the BattleScene component for the actual battle
-  return (
-    <BattleScene
-      playerHolobot={playerHolobot}
-      opponentHolobot={opponentHolobot}
-      onBattleComplete={onBattleComplete}
-      playerBoosts={playerBoosts}
-      isCpuBattle={true}
-    />
-  );
+  // Validate inputs before rendering
+  if (!playerHolobot || !opponentHolobot) {
+    console.error('ArenaBattle: Missing required holobots', { playerHolobot, opponentHolobot });
+    
+    // Return a fallback UI with error instead of crashing
+    return (
+      <Card style={{ padding: 16 }}>
+        <Text style={{ color: colors.text, fontSize: 16, textAlign: 'center', marginBottom: 12 }}>
+          Unable to start battle: Missing holobot data
+        </Text>
+        <Button 
+          title="Return to Arena Menu" 
+          onPress={() => onBattleComplete('loss')} 
+          variant="primary"
+        />
+      </Card>
+    );
+  }
+  
+  try {
+    // Use the BattleScene component for the actual battle
+    return (
+      <BattleScene
+        playerHolobot={playerHolobot}
+        opponentHolobot={opponentHolobot}
+        onBattleComplete={onBattleComplete}
+        playerBoosts={playerBoosts}
+        isCpuBattle={true}
+      />
+    );
+  } catch (error) {
+    console.error('Error rendering battle scene:', error);
+    
+    // Return a fallback UI with error instead of crashing
+    return (
+      <Card style={{ padding: 16 }}>
+        <Text style={{ color: colors.error, fontSize: 16, textAlign: 'center', marginBottom: 12 }}>
+          An error occurred starting the battle.
+        </Text>
+        <Button 
+          title="Back to Arena" 
+          onPress={() => onBattleComplete('loss')} 
+          variant="primary"
+        />
+      </Card>
+    );
+  }
 };

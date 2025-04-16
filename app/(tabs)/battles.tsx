@@ -169,77 +169,101 @@ export default function BattlesScreen() {
   };
   
   const handleBattleComplete = async (result: 'win' | 'loss' | 'draw') => {
-    setBattleResult(result);
-    
-    // Update user stats and rewards
-    if (user) {
-      const rewards = {
-        tokens: result === 'win' ? 100 : result === 'draw' ? 25 : 10,
-        exp: result === 'win' ? 50 : result === 'draw' ? 20 : 10
-      };
+    try {
+      setBattleResult(result);
       
-      // Find the selected holobot to update its experience
-      if (selectedHolobotKey && user.holobots && Array.isArray(user.holobots)) {
-        const holobotName = HOLOBOT_STATS[selectedHolobotKey].name;
-        const updatedHolobots = user.holobots.map(holobot => {
-          if (holobot.name === holobotName) {
-            const currentExp = holobot.experience || 0;
-            const newExp = currentExp + rewards.exp;
-            const currentLevel = holobot.level || 1;
-            const expForNextLevel = holobot.nextLevelExp || currentLevel * 100;
-            
-            // Check if holobot leveled up
-            let newLevel = currentLevel;
-            let remainingExp = newExp;
-            
-            if (newExp >= expForNextLevel) {
-              newLevel = currentLevel + 1;
-              remainingExp = newExp - expForNextLevel;
+      // Update user stats and rewards
+      if (user) {
+        const rewards = {
+          tokens: result === 'win' ? 100 : result === 'draw' ? 25 : 10,
+          exp: result === 'win' ? 50 : result === 'draw' ? 20 : 10
+        };
+        
+        // Find the selected holobot to update its experience
+        if (selectedHolobotKey && user.holobots && Array.isArray(user.holobots)) {
+          const holobotName = HOLOBOT_STATS[selectedHolobotKey]?.name;
+          
+          if (!holobotName) {
+            console.error('Invalid holobot key:', selectedHolobotKey);
+            Alert.alert("Battle Error", "Could not find selected Holobot.");
+            resetArena();
+            return;
+          }
+          
+          const updatedHolobots = user.holobots.map(holobot => {
+            if (holobot.name === holobotName) {
+              const currentExp = holobot.experience || 0;
+              const newExp = currentExp + rewards.exp;
+              const currentLevel = holobot.level || 1;
+              const expForNextLevel = holobot.nextLevelExp || currentLevel * 100;
               
-              // If leveled up, add attribute points (3 per level)
-              const attributePoints = (holobot.attributePoints || 0) + 3;
+              // Check if holobot leveled up
+              let newLevel = currentLevel;
+              let remainingExp = newExp;
+              
+              if (newExp >= expForNextLevel) {
+                newLevel = currentLevel + 1;
+                remainingExp = newExp - expForNextLevel;
+                
+                // If leveled up, add attribute points (3 per level)
+                const attributePoints = (holobot.attributePoints || 0) + 3;
+                
+                return {
+                  ...holobot,
+                  level: newLevel,
+                  experience: remainingExp,
+                  nextLevelExp: newLevel * 100,
+                  attributePoints
+                };
+              }
               
               return {
                 ...holobot,
-                level: newLevel,
-                experience: remainingExp,
-                nextLevelExp: newLevel * 100,
-                attributePoints
+                experience: newExp
               };
             }
-            
-            return {
-              ...holobot,
-              experience: newExp
-            };
-          }
-          return holobot;
-        });
-        
-        await updateUser({
-          holobots: updatedHolobots,
-          holosTokens: (user.holosTokens || 0) + rewards.tokens,
-          stats: {
-            wins: (user.stats?.wins || 0) + (result === 'win' ? 1 : 0),
-            losses: (user.stats?.losses || 0) + (result === 'loss' ? 1 : 0)
-          }
-        });
-      } else {
-        await updateUser({
-          holosTokens: (user.holosTokens || 0) + rewards.tokens,
-          stats: {
-            wins: (user.stats?.wins || 0) + (result === 'win' ? 1 : 0),
-            losses: (user.stats?.losses || 0) + (result === 'loss' ? 1 : 0)
-          }
-        });
+            return holobot;
+          });
+          
+          await updateUser({
+            holobots: updatedHolobots,
+            holosTokens: (user.holosTokens || 0) + rewards.tokens,
+            stats: {
+              wins: (user.stats?.wins || 0) + (result === 'win' ? 1 : 0),
+              losses: (user.stats?.losses || 0) + (result === 'loss' ? 1 : 0)
+            }
+          });
+        } else {
+          await updateUser({
+            holosTokens: (user.holosTokens || 0) + rewards.tokens,
+            stats: {
+              wins: (user.stats?.wins || 0) + (result === 'win' ? 1 : 0),
+              losses: (user.stats?.losses || 0) + (result === 'loss' ? 1 : 0)
+            }
+          });
+        }
       }
+      
+      // Reset arena after a delay
+      resetArena();
+    } catch (error) {
+      console.error('Error completing battle:', error);
+      Alert.alert(
+        "Battle Completion Error", 
+        "There was an error saving your battle results. Your progress may not be saved."
+      );
+      resetArena();
     }
-    
-    // Reset arena after a delay
+  };
+  
+  // Helper function to reset the arena state
+  const resetArena = () => {
     setTimeout(() => {
       setShowArena(false);
       setArenaMode('prebattle');
       setBattleResult(null);
+      setSelectedHolobotKey(null);
+      setSelectedHolobotBoosts(null);
     }, 3000);
   };
   
@@ -303,9 +327,22 @@ export default function BattlesScreen() {
   
   // Get random opponent
   const getRandomOpponent = () => {
-    const keys = Object.keys(HOLOBOT_STATS);
-    const randomKey = keys[Math.floor(Math.random() * keys.length)];
-    return HOLOBOT_STATS[randomKey];
+    try {
+      const keys = Object.keys(HOLOBOT_STATS).filter(key => HOLOBOT_STATS[key]); // Filter out falsy entries just in case
+
+      if (keys.length === 0) {
+        throw new Error('HOLOBOT_STATS has no valid entries');
+      }
+
+      const randomKey = keys[Math.floor(Math.random() * keys.length)];
+      return HOLOBOT_STATS[randomKey]; // Guaranteed to return a real Holobot
+    } catch (error) {
+      console.error('Error selecting random opponent:', error);
+
+      // Fallback: Always return ACE or the first valid entry
+      const aceBot = HOLOBOT_STATS['ace'] || HOLOBOT_STATS[Object.keys(HOLOBOT_STATS)[0]];
+      return aceBot;
+    }
   };
   
   // Render tier selector for leaderboard
@@ -442,7 +479,27 @@ export default function BattlesScreen() {
                 <Text style={styles.title}>Battle Arena</Text>
                 <TouchableOpacity 
                   style={styles.arenaButton}
-                  onPress={() => setShowArena(true)}
+                  onPress={() => {
+                    try {
+                      // Check if user has holobots before showing arena
+                      if (!user || !user.holobots || !Array.isArray(user.holobots) || user.holobots.length === 0) {
+                        Alert.alert(
+                          "No Holobots Available", 
+                          "You need at least one Holobot to enter the Arena. Visit the Gacha page to get some!"
+                        );
+                        return;
+                      }
+                      
+                      // Proceed to show arena if everything is fine
+                      setShowArena(true);
+                    } catch (error) {
+                      console.error('Arena error:', error);
+                      Alert.alert(
+                        "Arena Error", 
+                        error instanceof Error ? error.message : "An error occurred when entering the Arena"
+                      );
+                    }
+                  }}
                 >
                   <Award size={16} color={colors.text} />
                   <Text style={styles.arenaButtonText}>Enter Arena</Text>

@@ -14,6 +14,24 @@ import { Footprints, Zap, Clock, Award, AlertCircle, Info, Activity } from 'luci
 import { SyncTraining } from '@/components/SyncTraining';
 import { TrainingSummary } from '@/components/TrainingSummary';
 import { Holobot } from '@/types/holobot';
+import AppleHealthKit, { HealthInputOptions, HealthKitPermissions } from 'react-native-health';
+
+const HEALTH_PERMISSIONS = {
+  permissions: {
+    read: [
+      AppleHealthKit.Constants.Permissions.Steps,
+      AppleHealthKit.Constants.Permissions.ActiveEnergyBurned,
+      AppleHealthKit.Constants.Permissions.BasalEnergyBurned,
+      AppleHealthKit.Constants.Permissions.DistanceWalkingRunning,
+      AppleHealthKit.Constants.Permissions.HeartRate,
+      AppleHealthKit.Constants.Permissions.SleepAnalysis,
+    ],
+    write: [
+      AppleHealthKit.Constants.Permissions.Steps,
+      AppleHealthKit.Constants.Permissions.ActiveEnergyBurned,
+    ],
+  },
+} as HealthKitPermissions;
 
 export default function SyncScreen() {
   const router = useRouter();
@@ -43,19 +61,96 @@ export default function SyncScreen() {
   const [selectedHolobotId, setSelectedHolobotId] = useState<string | null>(null);
   
   useEffect(() => {
-    loadData();
-    if (fitnessData.lastSynced) {
-      setLastSynced(new Date(fitnessData.lastSynced));
-    }
-  }, [fitnessData.lastSynced]);
+    const initializeData = async () => {
+      try {
+        // Request HealthKit permissions first
+        if (Platform.OS === 'ios') {
+          AppleHealthKit.initHealthKit(HEALTH_PERMISSIONS, (error: string) => {
+            if (error) {
+              console.log('[ERROR] Cannot grant permissions');
+              Alert.alert(
+                "Health Permissions Required",
+                "This app needs access to your health data to track your fitness progress.",
+                [
+                  { 
+                    text: "Open Settings",
+                    onPress: () => Linking.openURL('app-settings:')
+                  },
+                  { text: "Cancel" }
+                ]
+              );
+              return;
+            }
+            
+            // Health data is available
+            loadData();
+          });
+        }
+        
+        if (fitnessData?.lastSynced) {
+          setLastSynced(new Date(fitnessData.lastSynced));
+        }
+      } catch (error) {
+        console.error('Error initializing sync data:', error);
+        Alert.alert(
+          "Error",
+          "Failed to load fitness data. Please try again.",
+          [{ text: "Retry", onPress: () => initializeData() }]
+        );
+      }
+    };
+    
+    initializeData();
+  }, [fitnessData?.lastSynced]);
   
   useEffect(() => {
-    fetchHolobots();
-    fetchHolobot();
+    const loadHolobots = async () => {
+      try {
+        await Promise.all([fetchHolobots(), fetchHolobot()]);
+      } catch (error) {
+        console.error('Error loading holobots:', error);
+        Alert.alert(
+          "Error",
+          "Failed to load holobots. Please try again.",
+          [{ text: "Retry", onPress: () => loadHolobots() }]
+        );
+      }
+    };
+    
+    loadHolobots();
   }, []);
   
   const loadData = async () => {
-    await fetchStepCount();
+    if (Platform.OS === 'ios') {
+      try {
+        const options: HealthInputOptions = {
+          startDate: new Date(new Date().setHours(0, 0, 0, 0)).toISOString(),
+          endDate: new Date().toISOString(),
+        };
+
+        AppleHealthKit.getStepCount(options, (error: string, results: { value: number }) => {
+          if (error) {
+            console.error('Error fetching step count:', error);
+            Alert.alert(
+              "Error",
+              "Failed to fetch health data. Please check your permissions and try again."
+            );
+            return;
+          }
+          
+          // Update the fitness store with the new data
+          fetchStepCount();
+        });
+      } catch (error) {
+        console.error('Error fetching health data:', error);
+        Alert.alert(
+          "Error",
+          "Failed to fetch health data. Please check your permissions and try again."
+        );
+      }
+    } else {
+      await fetchStepCount();
+    }
   };
   
   const handleRefresh = async () => {

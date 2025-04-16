@@ -1,58 +1,96 @@
-export interface User {
-  id: string;
-  email: string;
-  username: string;
-  walletAddress?: string;
-  holosTokens: number;
-  gachaTickets: number;
-  dailyEnergy: number;
-  maxDailyEnergy: number;
-  lastEnergyRefresh?: string;
-  energyRefills: number;
-  arenaPasses: number;
-  expBoosters: number;
-  rankSkips: number;
-  holobots?: any[];
-  blueprints?: Record<string, number>;
+import { Holobot } from './holobots';
+
+export interface UserStats {
+  // Battle stats
+  wins: number;
+  losses: number;
+  winStreak: number;
+  bestWinStreak: number;
+  totalBattles: number;
+  
+  // Sync Training stats
+  totalSyncTime: number;
+  totalSteps: number;
+  avgSpeed: number;
+  bestSpeed: number;
+  syncPoints: number;
+  
+  // Quest stats
+  totalQuests: number;
+  completedQuests: number;
+  failedQuests: number;
+  energySpent: number;
+  blueprintsCollected: number;
+}
+
+export interface UserPreferences {
+  theme: 'light' | 'dark';
+  sound: boolean;
+  vibration: boolean;
+  notifications: boolean;
+  language: string;
 }
 
 export interface Achievement {
   id: string;
   name: string;
   description: string;
-  completed: boolean;
   completedAt?: string;
   progress?: number;
   maxProgress?: number;
+  category: 'battle' | 'training' | 'collection' | 'quest';
+  reward?: {
+    type: 'holosTokens' | 'gachaTickets' | 'blueprint';
+    amount: number;
+    blueprintType?: string;
+  };
 }
 
-export interface UserStats {
-  totalBattles?: number;
-  wins: number;
-  losses: number;
-  draws?: number;
-  totalSteps?: number;
-  totalSyncPoints?: number;
-  highestWinStreak?: number;
-}
+export type PlayerRank = 'Rookie' | 'Scout' | 'Champion' | 'Elite' | 'Legend' | 'Mythic';
 
-export interface UserPreferences {
-  notifications: boolean;
-  theme: 'light' | 'dark';
-  sound: boolean;
-  vibration: boolean;
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  walletAddress?: string;
+  isWalletConnected: boolean;
+  
+  // Currency and Energy
+  holosTokens: number;
+  gachaTickets: number;
+  dailyEnergy: number;
+  maxDailyEnergy: number;
+  lastEnergyRefresh: string;
+  
+  // Items
+  energyRefills: number;
+  arenaPasses: number;
+  expBoosters: number;
+  rankSkips: number;
+  
+  // Game Progress
+  level: number;
+  experience: number;
+  player_rank: PlayerRank;
+  prestige_count: number;
+  
+  // Collections
+  holobots: Record<string, Holobot>;
+  blueprints: Record<string, number>;
+  
+  // Metadata
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface UserProfile extends User {
   avatarUrl?: string;
   bio?: string;
-  level: number;
-  experience: number;
-  achievements: Achievement[];
   stats: UserStats;
   preferences: UserPreferences;
-  player_rank: 'Rookie' | 'Scout' | 'Champion' | 'Elite' | 'Legend' | 'Mythic';
-  prestige_count: number;
+  achievements: Achievement[];
+  activeQuests?: string[];
+  completedQuests?: string[];
 }
 
 export interface Quest {
